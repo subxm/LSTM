@@ -18,7 +18,7 @@ This project is a Streamlit app for training and using an LSTM-based sentiment c
 Install the Python dependencies with:
 
 ```bash
-pip install streamlit pandas scikit-learn tensorflow
+pip install -r requirements.txt
 ```
 
 ## Run the app
