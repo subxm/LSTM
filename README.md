@@ -12,7 +12,7 @@ This project is a Streamlit app for training and using an LSTM-based sentiment c
 
 ## Requirements
 
-- Python 3.9 or newer
+- Python 3.11
 - `IMDB Dataset.csv` in the project root
 
 Install the Python dependencies with:
