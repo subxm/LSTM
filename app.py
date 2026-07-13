@@ -3,19 +3,17 @@ import os
 import pickle
 from pathlib import Path
 
+import numpy as np
+
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
 
 import pandas as pd
 import streamlit as st
-from sklearn.metrics import accuracy_score, classification_report
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
 
 DATASET = Path("IMDB Dataset.csv")
 MODEL = Path("lstm_sentiment.keras")
 TOKENIZER = Path("tokenizer.pkl")
-ENCODER = Path("label_encoder.pkl")
 
 MAX_WORDS = 10000
 MAX_LENGTH = 200
@@ -26,12 +24,59 @@ BATCH_SIZE = 64
 
 
 def artifacts_ready() -> bool:
-    return MODEL.exists() and TOKENIZER.exists() and ENCODER.exists()
+    return MODEL.exists() and TOKENIZER.exists()
 
 
 @st.cache_data(show_spinner=False)
 def load_data(dataset_mtime: float) -> pd.DataFrame:
     return pd.read_csv(DATASET)
+
+
+def split_data(features, targets, test_size: float = 0.2, random_state: int = 42):
+    rng = np.random.default_rng(random_state)
+    indices = rng.permutation(len(features))
+    split_index = int(len(features) * (1 - test_size))
+    train_indices = indices[:split_index]
+    test_indices = indices[split_index:]
+    return (
+        features[train_indices],
+        features[test_indices],
+        targets[train_indices],
+        targets[test_indices],
+    )
+
+
+def build_classification_report(y_true, y_pred) -> str:
+    lines = ["              precision    recall  f1-score   support", ""]
+
+    total_correct = int((y_true == y_pred).sum())
+    accuracy = total_correct / len(y_true) if len(y_true) else 0.0
+
+    for label, name in ((0, "negative"), (1, "positive")):
+        true_positive = int(((y_true == label) & (y_pred == label)).sum())
+        false_positive = int(((y_true != label) & (y_pred == label)).sum())
+        false_negative = int(((y_true == label) & (y_pred != label)).sum())
+        support = int((y_true == label).sum())
+
+        precision = true_positive / (true_positive + false_positive) if (true_positive + false_positive) else 0.0
+        recall = true_positive / (true_positive + false_negative) if (true_positive + false_negative) else 0.0
+        f1_score = (
+            2 * precision * recall / (precision + recall)
+            if (precision + recall)
+            else 0.0
+        )
+
+        lines.append(
+            f"{name:>12} {precision:>10.2f} {recall:>9.2f} {f1_score:>9.2f} {support:>9}"
+        )
+
+    lines.extend(
+        [
+            "",
+            f"{'accuracy':>12} {'':>10} {'':>9} {accuracy:>9.2f} {len(y_true):>9}",
+        ]
+    )
+    return "\n".join(lines)
 
 
 @st.cache_resource(show_spinner=False)
@@ -40,8 +85,9 @@ def prepare_training_data(dataset_mtime: float):
     from tensorflow.keras.preprocessing.text import Tokenizer
 
     df = load_data(dataset_mtime).copy()
-    encoder = LabelEncoder()
-    df["sentiment"] = encoder.fit_transform(df["sentiment"])
+    df["sentiment"] = df["sentiment"].str.lower().map({"negative": 0, "positive": 1})
+    df = df.dropna(subset=["sentiment"])
+    df["sentiment"] = df["sentiment"].astype(int)
 
     tokenizer = Tokenizer(num_words=MAX_WORDS, oov_token="<OOV>")
     tokenizer.fit_on_texts(df["review"])
@@ -54,14 +100,14 @@ def prepare_training_data(dataset_mtime: float):
     )
     targets = df["sentiment"].values
 
-    X_train, X_test, y_train, y_test = train_test_split(
+    X_train, X_test, y_train, y_test = split_data(
         features,
         targets,
         test_size=0.2,
         random_state=42,
     )
 
-    return X_train, X_test, y_train, y_test, tokenizer, encoder
+    return X_train, X_test, y_train, y_test, tokenizer
 
 
 def build_model():
@@ -99,7 +145,6 @@ def build_model():
 def load_saved_artifacts(
     model_mtime: float,
     tokenizer_mtime: float,
-    encoder_mtime: float,
 ):
     from tensorflow.keras.models import load_model
 
@@ -108,16 +153,13 @@ def load_saved_artifacts(
     with TOKENIZER.open("rb") as file:
         tokenizer = pickle.load(file)
 
-    with ENCODER.open("rb") as file:
-        encoder = pickle.load(file)
-
-    return model, tokenizer, encoder
+    return model, tokenizer
 
 
 def evaluate_model(model, X_test, y_test):
     predictions = (model.predict(X_test, verbose=0) > 0.5).astype(int).ravel()
-    accuracy = accuracy_score(y_test, predictions)
-    report = classification_report(y_test, predictions)
+    accuracy = float((predictions == y_test).mean())
+    report = build_classification_report(y_test, predictions)
     return accuracy, report
 
 
@@ -147,7 +189,7 @@ else:
 
 if st.button("Train Model", type="primary"):
     with st.spinner("Preparing data and training the model. This may take a few minutes the first time."):
-        X_train, X_test, y_train, y_test, tokenizer, encoder = prepare_training_data(dataset_mtime)
+        X_train, X_test, y_train, y_test, tokenizer = prepare_training_data(dataset_mtime)
         model, early_stopping = build_model()
 
         model.fit(
@@ -164,9 +206,6 @@ if st.button("Train Model", type="primary"):
 
         with TOKENIZER.open("wb") as file:
             pickle.dump(tokenizer, file)
-
-        with ENCODER.open("wb") as file:
-            pickle.dump(encoder, file)
 
         accuracy, report = evaluate_model(model, X_test, y_test)
         load_saved_artifacts.clear()
@@ -186,11 +225,10 @@ if "metrics" in st.session_state:
 elif model_available:
     if st.button("Run Evaluation"):
         with st.spinner("Loading the saved model and evaluating it..."):
-            X_train, X_test, y_train, y_test, _, _ = prepare_training_data(dataset_mtime)
-            model, _, _ = load_saved_artifacts(
+            X_train, X_test, y_train, y_test, _ = prepare_training_data(dataset_mtime)
+            model, _ = load_saved_artifacts(
                 MODEL.stat().st_mtime,
                 TOKENIZER.stat().st_mtime,
-                ENCODER.stat().st_mtime,
             )
             accuracy, report = evaluate_model(model, X_test, y_test)
 
@@ -214,10 +252,9 @@ if st.button("Predict", disabled=not model_available):
         with st.spinner("Loading the saved model and generating a prediction..."):
             from tensorflow.keras.preprocessing.sequence import pad_sequences
 
-            model, tokenizer, encoder = load_saved_artifacts(
+            model, tokenizer = load_saved_artifacts(
                 MODEL.stat().st_mtime,
                 TOKENIZER.stat().st_mtime,
-                ENCODER.stat().st_mtime,
             )
             sequence = tokenizer.texts_to_sequences([review])
             padded_review = pad_sequences(
@@ -228,7 +265,7 @@ if st.button("Predict", disabled=not model_available):
             )
             score = float(model.predict(padded_review, verbose=0)[0][0])
             label_index = int(score >= 0.5)
-            label = encoder.inverse_transform([label_index])[0]
+            label = "positive" if label_index == 1 else "negative"
 
         if label == "positive":
             st.success(f"Positive review ({score:.2%} confidence)")

@@ -45,7 +45,6 @@ After training, the app writes these files to the project root:
 
 - `lstm_sentiment.keras`
 - `tokenizer.pkl`
-- `label_encoder.pkl`
 
 These files are reused for evaluation and prediction.
 
