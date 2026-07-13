@@ -1,18 +1,18 @@
 # IMDB Sentiment Analysis with LSTM
 
-This project is a Streamlit app for training and using an LSTM-based sentiment classifier on the IMDB movie review dataset.
+This project is a Streamlit app for training and using a sentiment classifier on the IMDB movie review dataset.
 
 ## What it does
 
 - Loads and previews the IMDB review dataset
-- Trains an LSTM model for binary sentiment classification
-- Saves the trained model and preprocessing artifacts locally
+- Trains a lightweight text classifier for binary sentiment classification
+- Saves the trained model and vectorizer locally
 - Evaluates the model on a held-out test split
 - Predicts sentiment for custom movie reviews
 
 ## Requirements
 
-- Python 3.11
+- Python 3.11 or newer
 - `IMDB Dataset.csv` in the project root
 
 Install the Python dependencies with:
@@ -43,8 +43,8 @@ If the browser does not open automatically, Streamlit will show a local URL in t
 
 After training, the app writes these files to the project root:
 
-- `lstm_sentiment.keras`
-- `tokenizer.pkl`
+- `sentiment_model.pkl`
+- `vectorizer.pkl`
 
 These files are reused for evaluation and prediction.
 
